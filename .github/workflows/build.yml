@@ -5,7 +5,7 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  # Trigger manually
+  # Trigger manually from GitHub UI
   workflow_dispatch:
 
 jobs:
@@ -18,27 +18,52 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
       
       - name: Install dependencies
         run: npm install
       
-      - name: Build app for ${{ matrix.os }}
+      - name: Build Electron app
         run: npm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+      # Upload Windows installer
+      - name: Upload Windows installer
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-installer
+          name: windows-installer
           path: |
             dist/*.exe
+            dist/*.exe.blockmap
+          retention-days: 30
+      
+      # Upload macOS installer
+      - name: Upload macOS installer
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer
+          path: |
             dist/*.dmg
+            dist/*.dmg.blockmap
+            dist/*.zip
+          retention-days: 30
+      
+      # Upload Linux installer
+      - name: Upload Linux installer
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-installer
+          path: |
             dist/*.AppImage
             dist/*.deb
+            dist/*.rpm
+          retention-days: 30
