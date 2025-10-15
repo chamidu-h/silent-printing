@@ -19,63 +19,67 @@ jobs:
     timeout-minutes: 40
 
     steps:
-      - name: 📥 Checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: 🔧 Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      - name: 📊 Environment info
+      - name: Display environment info
         run: |
-          echo "=== Build Environment ==="
-          echo "Node: $(node --version)"
-          echo "NPM: $(npm --version)"
-          echo "Platform: Windows"
-          echo "Workspace: ${{ github.workspace }}"
-          echo "========================"
+          Write-Host "=== Build Environment ==="
+          Write-Host "Node: $(node --version)"
+          Write-Host "NPM: $(npm --version)"
+          Write-Host "Platform: Windows"
+          Write-Host "Workspace: ${{ github.workspace }}"
+          Write-Host "========================"
 
-      - name: 📦 Install dependencies
+      - name: Install dependencies
         run: npm install --prefer-offline --no-audit --no-fund
         timeout-minutes: 15
 
-      - name: 🔨 Build Windows installer (no publish)
+      - name: Build Windows installer
         run: npm run build-win -- --publish never
         timeout-minutes: 15
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           DEBUG: electron-builder
 
-      - name: 📂 Verify build output
+      - name: Verify build output
+        shell: pwsh
         run: |
-          echo "=== Build Artifacts ==="
+          Write-Host "=== Build Artifacts ==="
+          
           if (Test-Path "dist") {
             $files = Get-ChildItem dist -Recurse
             $files | Format-Table Name, Length, LastWriteTime -AutoSize
             
-            $installer = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+            $installer = Get-ChildItem dist -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            
             if ($installer) {
               $sizeMB = [math]::Round($installer.Length / 1MB, 2)
-              echo ""
-              echo "✅ Installer: $($installer.Name) (${sizeMB} MB)"
+              Write-Host ""
+              Write-Host "SUCCESS: Installer found - $($installer.Name) ($sizeMB MB)"
               
-              echo "### ✅ Build Complete!" >> $env:GITHUB_STEP_SUMMARY
-              echo "" >> $env:GITHUB_STEP_SUMMARY
-              echo "**File:** $($installer.Name)" >> $env:GITHUB_STEP_SUMMARY
-              echo "**Size:** ${sizeMB} MB" >> $env:GITHUB_STEP_SUMMARY
-              echo "**Path:** \`dist/\`" >> $env:GITHUB_STEP_SUMMARY
+              # Write to GitHub Step Summary
+              "### Build Complete!" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+              "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+              "**File:** $($installer.Name)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+              "**Size:** $sizeMB MB" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+              "**Path:** ``dist/``" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
             } else {
-              echo "❌ No .exe installer found!"
+              Write-Host "ERROR: No .exe installer found in dist folder!"
               exit 1
             }
           } else {
-            echo "❌ dist folder not found!"
+            Write-Host "ERROR: dist folder not found!"
             exit 1
           }
 
-      - name: 📤 Upload Windows installer
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
           name: Silent-Print-Agent-Windows-v${{ github.run_number }}
@@ -83,7 +87,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: 📤 Upload build metadata (optional)
+      - name: Upload build metadata
         uses: actions/upload-artifact@v4
         with:
           name: build-metadata
