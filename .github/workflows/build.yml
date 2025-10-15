@@ -4,88 +4,122 @@ on:
   push:
     branches:
       - main
-      - master
   pull_request:
     branches:
       - main
-      - master
   workflow_dispatch:
 
-# Prevent concurrent builds
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: windows-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: 🔧 Setup Node.js
+      - name: 🔧 Setup Node.js with caching
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
-      - name: 📊 Display environment info
+      - name: 📊 Display environment
         run: |
-          echo "Node version: $(node --version)"
-          echo "NPM version: $(npm --version)"
-          echo "Working directory: ${{ github.workspace }}"
-          dir
+          echo "=== Environment Info ==="
+          echo "Node: $(node --version)"
+          echo "NPM: $(npm --version)"
+          echo "OS: Windows"
+          echo "Working Dir: ${{ github.workspace }}"
 
-      - name: 📦 Install dependencies
-        run: npm install --no-audit --no-fund --verbose
-        timeout-minutes: 15
-        env:
-          ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
-          npm_config_loglevel: verbose
+      - name: 🧹 Clean npm cache
+        run: npm cache clean --force
+        continue-on-error: true
 
-      - name: 📋 List installed packages
+      - name: 📦 Install dependencies with retry
         run: |
-          echo "=== Installed packages ==="
-          npm list --depth=0
+          $maxRetries = 3
+          $retryCount = 0
+          $success = $false
+          
+          while (-not $success -and $retryCount -lt $maxRetries) {
+            try {
+              echo "=== Install attempt $($retryCount + 1) of $maxRetries ==="
+              npm install --prefer-offline --no-audit --no-fund --loglevel=error
+              $success = $true
+              echo "✅ Dependencies installed successfully"
+            }
+            catch {
+              $retryCount++
+              if ($retryCount -lt $maxRetries) {
+                echo "❌ Install failed, retrying in 10 seconds..."
+                Start-Sleep -Seconds 10
+              } else {
+                echo "❌ Install failed after $maxRetries attempts"
+                exit 1
+              }
+            }
+          }
+        timeout-minutes: 20
+
+      - name: 📋 Verify installation
+        run: |
+          echo "=== Checking key packages ==="
+          npm list electron electron-builder --depth=0
         continue-on-error: true
 
       - name: 🔨 Build Windows installer
         run: npm run build-win
-        timeout-minutes: 15
+        timeout-minutes: 20
         env:
           DEBUG: electron-builder
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          ELECTRON_BUILDER_CACHE: ${{ github.workspace }}\.cache\electron-builder
 
-      - name: 📂 List build output
+      - name: 📂 List build artifacts
         run: |
-          echo "=== Build output directory ==="
-          dir dist
-        if: always()
+          echo "=== Build Output ==="
+          if (Test-Path "dist") {
+            Get-ChildItem dist -Recurse | Format-Table Name, Length, LastWriteTime
+          } else {
+            echo "❌ No dist folder found!"
+            exit 1
+          }
+
+      - name: ✅ Verify installer exists
+        run: |
+          $installer = Get-ChildItem -Path dist -Filter *.exe | Select-Object -First 1
+          if ($installer) {
+            $sizeMB = [math]::Round($installer.Length / 1MB, 2)
+            echo "### ✅ Build Successful!" >> $env:GITHUB_STEP_SUMMARY
+            echo "" >> $env:GITHUB_STEP_SUMMARY
+            echo "**Installer:** $($installer.Name)" >> $env:GITHUB_STEP_SUMMARY
+            echo "**Size:** ${sizeMB} MB" >> $env:GITHUB_STEP_SUMMARY
+            echo "**Location:** dist/" >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            echo "❌ No installer found!"
+            exit 1
+          }
 
       - name: 📤 Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installer-${{ github.sha }}
-          path: |
-            dist/*.exe
-            dist/*.blockmap
+          name: Silent-Print-Agent-Windows
+          path: dist/*.exe
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
-      - name: 📝 Build summary
-        if: success()
-        run: |
-          echo "### ✅ Build Successful!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Installer Location:** \`dist/\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Files Generated:**" >> $GITHUB_STEP_SUMMARY
-          dir dist\*.exe | ForEach-Object { echo "- $($_.Name) ($([math]::Round($_.Length/1MB, 2)) MB)" >> $GITHUB_STEP_SUMMARY }
-
-      - name: ❌ Build failure logs
+      - name: ❌ Upload logs on failure
         if: failure()
-        run: |
-          echo "=== NPM Debug Log ==="
-          type C:\npm\cache\_logs\*-debug-*.log
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-failure
+          path: |
+            npm-debug.log*
+            C:\npm\cache\_logs\*-debug-*.log
+          if-no-files-found: ignore
         continue-on-error: true
