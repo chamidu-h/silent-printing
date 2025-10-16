@@ -17,6 +17,7 @@
   "dependencies": {
     "auto-launch": "^5.0.6",
     "body-parser": "^2.2.0",
+    "electron-store": "^11.0.2",
     "express": "^5.1.0"
   },
   "devDependencies": {
@@ -31,7 +32,9 @@
       "output": "dist"
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "icon.ico"
     },
     "nsis": {
@@ -47,7 +50,9 @@
       "uninstallerIcon": "icon.ico"
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "icon": "icon.icns",
       "category": "public.app-category.utilities"
     },
@@ -66,7 +71,10 @@
       ]
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "icon.png",
       "category": "Utility"
     }

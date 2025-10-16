@@ -1,8 +1,9 @@
-// main.js - Complete Electron Print Agent
-const { app, BrowserWindow, Tray, Menu, nativeImage } = require('electron');
+// main.js - Complete Electron Print Agent with Settings UI
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } = require('electron');
 const express = require('express');
 const bodyParser = require('body-parser');
 const AutoLaunch = require('auto-launch');
+const Store = require('electron-store');
 const fs = require('fs');
 const os = require('os');
 const { exec } = require('child_process');
@@ -10,8 +11,18 @@ const util = require('util');
 const execPromise = util.promisify(exec);
 const path = require('path');
 
+// Initialize persistent store with defaults
+const store = new Store({
+  defaults: {
+    port: 4000,
+    printerName: 'XP-80C'
+  }
+});
+
 let tray = null;
 let mainWindow = null;
+let settingsWindow = null;
+let server = null;
 
 // Configure auto-launch on system boot
 const autoLauncher = new AutoLaunch({
@@ -44,9 +55,6 @@ app.whenReady().then(async () => {
 // Prevent app from quitting when all windows are closed
 app.on('window-all-closed', (e) => {
   // Keep app running in background
-  if (process.platform !== 'darwin') {
-    // On macOS, don't quit
-  }
 });
 
 // macOS: Re-activate app when clicked in dock
@@ -72,6 +80,20 @@ function createTray() {
   tray = new Tray(resizedIcon);
   tray.setToolTip('Silent Print Agent - Running');
   
+  updateTrayMenu();
+  
+  // Show notification on tray click (optional)
+  tray.on('click', () => {
+    tray.popUpContextMenu();
+  });
+}
+
+function updateTrayMenu() {
+  const currentPort = store.get('port');
+  const iconPath = path.join(__dirname, 'icon.png');
+  const icon = nativeImage.createFromPath(iconPath);
+  const resizedIcon = icon.resize({ width: 16, height: 16 });
+  
   // Create context menu
   const contextMenu = Menu.buildFromTemplate([
     { 
@@ -81,14 +103,20 @@ function createTray() {
     },
     { type: 'separator' },
     { 
-      label: '✓ Status: Running on port 4000', 
+      label: `✓ Status: Running on port ${currentPort}`, 
       enabled: false 
     },
     { 
-      label: '🌐 Endpoint: http://localhost:4000', 
+      label: `🌐 Endpoint: http://localhost:${currentPort}`, 
       enabled: false 
     },
     { type: 'separator' },
+    { 
+      label: 'Settings', 
+      click: () => {
+        openSettings();
+      }
+    },
     { 
       label: 'Test Print', 
       click: () => {
@@ -112,15 +140,75 @@ function createTray() {
   ]);
   
   tray.setContextMenu(contextMenu);
+}
+
+function openSettings() {
+  if (settingsWindow) {
+    settingsWindow.focus();
+    return;
+  }
   
-  // Show notification on tray click (optional)
-  tray.on('click', () => {
-    tray.popUpContextMenu();
+  settingsWindow = new BrowserWindow({
+    width: 500,
+    height: 400,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    title: 'Print Agent Settings',
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+  
+  settingsWindow.loadFile('settings.html');
+  
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
   });
 }
 
+// IPC handlers for settings
+ipcMain.on('get-settings', (event) => {
+  event.returnValue = {
+    port: store.get('port'),
+    printerName: store.get('printerName')
+  };
+});
+
+ipcMain.on('save-settings', (event, settings) => {
+  const oldPort = store.get('port');
+  
+  store.set('port', settings.port);
+  store.set('printerName', settings.printerName);
+  
+  event.returnValue = { success: true };
+  
+  // If port changed, notify user to restart
+  if (oldPort !== settings.port) {
+    const { dialog } = require('electron');
+    dialog.showMessageBox(settingsWindow, {
+      type: 'info',
+      title: 'Restart Required',
+      message: 'Port settings updated successfully!',
+      detail: 'Please restart the Print Agent for changes to take effect.',
+      buttons: ['Restart Now', 'Later']
+    }).then(result => {
+      if (result.response === 0) {
+        app.relaunch();
+        app.quit();
+      }
+    });
+  } else {
+    settingsWindow.close();
+  }
+});
+
 function startPrintServer() {
-  const server = express();
+  const PORT = store.get('port');
+  const defaultPrinter = store.get('printerName');
+  
+  server = express();
   server.use(bodyParser.json({ limit: '50mb' }));
   server.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
   
@@ -129,8 +217,9 @@ function startPrintServer() {
     res.json({ 
       status: 'running',
       version: '1.0.0',
-      port: 4000,
+      port: PORT,
       platform: os.platform(),
+      defaultPrinter: defaultPrinter,
       message: 'Silent Print Agent is active'
     });
   });
@@ -158,16 +247,15 @@ function startPrintServer() {
     console.log(`\n[${new Date().toISOString()}] 📥 Print request received`);
     
     try {
-      const { pdfBase64, printerName } = req.body;
+      const { pdfBase64 } = req.body;
       
       // Validate input
       if (!pdfBase64) {
         throw new Error('Missing pdfBase64 in request body');
       }
       
-      if (!printerName) {
-        throw new Error('Missing printerName in request body');
-      }
+      // Use provided printer name or default from settings
+      const printerName = req.body.printerName || store.get('printerName');
       
       console.log(`🖨️  Printer: ${printerName}`);
       console.log(`📄 PDF Size: ${(pdfBase64.length / 1024).toFixed(2)} KB`);
@@ -193,6 +281,7 @@ function startPrintServer() {
       res.json({ 
         success: true, 
         message: 'Bill printed successfully',
+        printer: printerName,
         duration: `${duration}ms`
       });
       
@@ -207,12 +296,12 @@ function startPrintServer() {
   });
   
   // Start server
-  const PORT = 4000;
   server.listen(PORT, 'localhost', () => {
     console.log('============================================================');
     console.log(`✅ Print Agent v1.0.0 running on http://localhost:${PORT}`);
     console.log(`   Health check: http://localhost:${PORT}/health`);
     console.log(`   Print endpoint: http://localhost:${PORT}/print`);
+    console.log(`   Default Printer: ${defaultPrinter}`);
     console.log(`   Platform: ${os.platform()}`);
     console.log('============================================================');
   });
@@ -316,10 +405,8 @@ async function getAvailablePrinters() {
 
 function testPrint() {
   console.log('Test print triggered from tray menu');
-  // You can implement a test print functionality here
 }
 
 function showLogs() {
-  // Open console or log file
   console.log('Show logs clicked');
 }
