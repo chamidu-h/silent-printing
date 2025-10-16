@@ -1,0 +1,112 @@
+name: Build macOS Installer
+
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+
+concurrency:
+  group: macos-build-${{ github.ref }}  # CHANGED: windows-build → macos-build
+  cancel-in-progress: true
+
+
+jobs:
+  build-macos:  # CHANGED: build-windows → build-macos
+    runs-on: macos-latest  # CHANGED: windows-latest → macos-latest
+    timeout-minutes: 40
+
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+
+      - name: Display environment info
+        run: |  # CHANGED: Removed 'shell: pwsh', using bash (default for macOS)
+          echo "=== Build Environment ==="  # CHANGED: Write-Host → echo
+          echo "Node: $(node --version)"
+          echo "NPM: $(npm --version)"
+          echo "Platform: macOS"  # CHANGED: Windows → macOS
+          echo "Workspace: ${{ github.workspace }}"
+          echo "========================"
+
+
+      - name: Install dependencies
+        run: npm install --prefer-offline --no-audit --no-fund
+        timeout-minutes: 15
+
+
+      - name: Build macOS installer  # CHANGED: Windows installer → macOS installer
+        run: npm run build-mac -- --publish never  # CHANGED: build-win → build-mac
+        timeout-minutes: 15
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          DEBUG: electron-builder
+
+
+      - name: Verify build output
+        # CHANGED: Removed 'shell: pwsh', using bash (default)
+        run: |
+          echo "=== Build Artifacts ==="
+          
+          if [ -d "dist" ]; then  # CHANGED: PowerShell Test-Path → bash [ -d ]
+            ls -lhR dist  # CHANGED: Get-ChildItem → ls -lhR
+            
+            # CHANGED: Look for .dmg instead of .exe
+            installer=$(find dist -name "*.dmg" -type f | head -n 1)
+            
+            if [ -n "$installer" ]; then  # CHANGED: PowerShell if ($installer) → bash [ -n ]
+              sizeMB=$(du -m "$installer" | cut -f1)  # CHANGED: PowerShell Length/1MB → du -m
+              filename=$(basename "$installer")
+              
+              echo ""
+              echo "SUCCESS: Installer found - $filename (${sizeMB} MB)"
+              
+              # Write to GitHub Step Summary
+              # CHANGED: PowerShell Out-File → bash echo with >>
+              echo "### Build Complete!" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**File:** $filename" >> $GITHUB_STEP_SUMMARY
+              echo "**Size:** ${sizeMB} MB" >> $GITHUB_STEP_SUMMARY
+              echo "**Path:** \`dist/\`" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "ERROR: No .dmg installer found in dist folder!"  # CHANGED: .exe → .dmg
+              exit 1
+            fi
+          else
+            echo "ERROR: dist folder not found!"
+            exit 1
+          fi
+
+
+      - name: Upload macOS installer  # CHANGED: Windows installer → macOS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Silent-Print-Agent-macOS-v${{ github.run_number }}  # CHANGED: Windows → macOS
+          path: dist/*.dmg  # CHANGED: *.exe → *.dmg
+          if-no-files-found: error
+          retention-days: 90
+
+
+      - name: Upload build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-metadata
+          path: |
+            dist/*.yml
+            dist/*.blockmap
+          if-no-files-found: ignore
+          retention-days: 30
