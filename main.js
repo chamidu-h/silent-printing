@@ -211,6 +211,9 @@ function startPrintServer() {
   server = express();
   server.use(bodyParser.json({ limit: '50mb' }));
   server.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+
+  const cors = require('cors');
+  server.use(cors({ origin: '*' }));
   
   // Health check endpoint
   server.get('/', (req, res) => {
