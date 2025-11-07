@@ -11,12 +11,10 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const AutoLaunch = require("auto-launch");
 const Store = require("electron-store");
-const fs = require("fs");
-const os = require("os");
-const { exec } = require("child_process");
-const util = require("util");
-const execPromise = util.promisify(exec);
 const path = require("path");
+const os = require("os");
+const fs = require("fs");
+const cheerio = require("cheerio");
 
 // Initialize persistent store with defaults
 const store = new Store({
@@ -27,7 +25,6 @@ const store = new Store({
 });
 
 let tray = null;
-let mainWindow = null;
 let settingsWindow = null;
 let server = null;
 
@@ -165,6 +162,7 @@ function openSettings() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      preload: path.join(__dirname, "preload.js"), // Best practice
     },
   });
 
@@ -190,6 +188,7 @@ ipcMain.on("save-settings", (event, settings) => {
   store.set("printerName", settings.printerName);
 
   event.returnValue = { success: true };
+  updateTrayMenu(); // Update tray to reflect new settings if needed
 
   // If port changed, notify user to restart
   if (oldPort !== settings.port) {
@@ -243,9 +242,22 @@ function startPrintServer() {
   // Get available printers
   server.get("/printers", async (req, res) => {
     try {
-      const printers = await getAvailablePrinters();
-      res.json({ success: true, printers });
+      const tempWindow = new BrowserWindow({ show: false });
+      const printers = await tempWindow.webContents.getPrintersAsync();
+      tempWindow.close();
+
+      res.json({
+        success: true,
+        printers: printers.map((p) => ({
+          name: p.name,
+          displayName: p.displayName,
+          status: p.status,
+          isDefault: p.isDefault,
+          options: p.options,
+        })),
+      });
     } catch (error) {
+      console.error("❌ Error fetching printers:", error);
       res.status(500).json({
         success: false,
         error: error.message,
@@ -253,110 +265,110 @@ function startPrintServer() {
     }
   });
 
-  // Main print endpoint (now accepts HTML and validates printer)
-  server.post("/print", async (req, res) => {
-    const { html } = req.body;
-    if (!html) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Missing html in request body" });
-    }
+ // The updated endpoint
+server.post("/print", async (req, res) => {
+  const { html } = req.body;
+  if (!html) return res.status(400).json({ success: false, error: "Missing html in request body" });
 
-    // Always use the printer name from the store for consistency
-    const storedPrinterName = store.get("printerName");
-    if (!storedPrinterName) {
-      console.error(
-        "❌ Print failed: No printer name is configured in settings."
-      );
-      return res.status(500).json({
-        success: false,
-        error: "No printer configured in agent settings",
-      });
-    }
+  const storedPrinterName = store.get("printerName");
+  if (!storedPrinterName) return res.status(500).json({ success: false, error: "No printer configured." });
 
-    let printWindow;
+  let printWindow;
+  try {
+    // Resolve the target printer
+    const tmp = new BrowserWindow({ show: false });
+    const printers = await tmp.webContents.getPrintersAsync();
+    tmp.close();
+    const target = printers.find(p => p.name === storedPrinterName);
+    if (!target) return res.status(404).json({ success: false, error: `Printer "${storedPrinterName}" not found.` });
 
-    try {
-      // Get all available printers to find an exact match
-      const printers = await getAvailablePrinters();
-      const targetPrinter = printers.find((p) => p.name === storedPrinterName);
+    // Constants
+    const PAGE_WIDTH_MICRONS = 80000;   // 80 mm wide roll (Chromium pageSize uses microns)
+    const PRINTABLE_WIDTH_MM = 72;      // typical effective width on 80mm printers (≈576 dots @203 dpi)
+    const X_OFFSET_MM = store.get('xOffsetMm') ?? 0; // optional fine horizontal nudge (+ right, – left)
 
-      if (!targetPrinter) {
-        const errorMsg = `Configured printer "${storedPrinterName}" not found on this system.`;
-        console.error(`❌ ${errorMsg}`);
-        return res.status(404).json({ success: false, error: errorMsg });
+    // Use on-screen composition to avoid offscreen rasterization/scaling
+    printWindow = new BrowserWindow({
+      show: false,
+      useContentSize: true,
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        offscreen: false,
+        zoomFactor: 1.0
       }
+    });
 
-      console.log(`🖨️  Attempting to print to: ${targetPrinter.name}`);
+    // Load raw payload unchanged
+    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
-      printWindow = new BrowserWindow({
-        show: false,
-        webPreferences: {
-          offscreen: true,
-          nodeIntegration: false,
-          contextIsolation: true,
-        },
-      });
+    // Lock zoom to 1:1 for consistent layout metrics
+    printWindow.webContents.setZoomFactor(1.0);
+    printWindow.webContents.setVisualZoomLevelLimits(1, 1);
 
-      printWindow.loadURL(
-        `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
-      );
+    // Ensure images/fonts/barcode have settled before measuring/printing
+    await printWindow.webContents.executeJavaScript(`
+      (async () => {
+        const imgs = Array.from(document.images);
+        await Promise.all(imgs.map(img => img.complete ? Promise.resolve()
+          : new Promise(r => { img.onload = img.onerror = r; })));
+        if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
+        await new Promise(r => requestAnimationFrame(() => setTimeout(r, 50)));
+      })();
+    `, true);
 
-      printWindow.webContents.on("did-finish-load", () => {
-        setTimeout(() => {
-          printWindow.webContents.print(
-            {
-              silent: true,
-              deviceName: targetPrinter.name, // Use the validated device name
-              printBackground: true,
-              margins: { marginType: "none" },
-            },
-            (success, failureReason) => {
-              if (!printWindow.isDestroyed()) printWindow.close();
-
-              if (success) {
-                console.log(
-                  `✅ Print completed successfully for printer: ${targetPrinter.name}`
-                );
-                res.json({
-                  success: true,
-                  message: "Bill printed successfully",
-                  printer: targetPrinter.name,
-                });
-              } else {
-                const errorMsg =
-                  failureReason || "An unknown error occurred during printing.";
-                console.error("❌ Print failed:", errorMsg);
-                res.status(500).json({ success: false, error: errorMsg });
-              }
-            }
-          );
-        }, 1000);
-      });
-
-      printWindow.webContents.on(
-        "did-fail-load",
-        (event, errorCode, errorDescription) => {
-          if (!printWindow.isDestroyed()) printWindow.close();
-          console.error(
-            "❌ Failed to load HTML for printing:",
-            errorDescription
-          );
-          res.status(500).json({
-            success: false,
-            error: `Failed to load HTML: ${errorDescription}`,
-          });
+    // Center a 72mm canvas on an 80mm page (runtime-only, does not modify payload source)
+    const cssKey = await printWindow.webContents.insertCSS(`
+      @media print {
+        @page { size: 80mm auto; margin: 0; }
+        html, body {
+          width: ${PRINTABLE_WIDTH_MM}mm !important;
+          margin-left: calc(4mm + ${X_OFFSET_MM}mm) !important; /* (80-72)/2 = 4mm, plus optional offset */
+          margin-right: 4mm !important;
+          padding: 0 !important;
+          box-sizing: border-box;
+          transform: translateX(0); /* reserved: we use margins for centering */
         }
-      );
-    } catch (error) {
-      if (printWindow && !printWindow.isDestroyed()) printWindow.close();
-      console.error(
-        "❌ An unexpected error occurred in the print endpoint:",
-        error.message
-      );
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
+      }
+    `);
+
+    // Remove any payload padding safely
+    await printWindow.webContents.insertCSS(`body { padding: 0 !important }`);
+
+    // Compute required height in microns from document scroll height (96 CSS px per inch)
+    const heightMicrons = await printWindow.webContents.executeJavaScript(`
+      (function() {
+        const px = Math.ceil(document.documentElement.scrollHeight);
+        const inches = px / 96;
+        const mm = inches * 25.4;
+        return Math.max(120000, Math.ceil(mm * 1000)); // at least 120mm
+      })();
+    `, true);
+
+    // Silent print with explicit 80mm width and measured height
+    printWindow.webContents.print({
+      silent: true,
+      deviceName: target.name,
+      printBackground: true,
+      color: false,
+      margins: { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 },
+      pageSize: { width: PAGE_WIDTH_MICRONS, height: heightMicrons } // microns
+    }, (success, failureReason) => {
+      // Best-effort cleanup of injected CSS (safe even if cssKey undefined)
+      if (cssKey) { printWindow.webContents.removeInsertedCSS(cssKey).catch(() => {}); }
+      if (!printWindow.isDestroyed()) printWindow.close();
+      if (success) return res.json({ success: true, message: "Bill sent to printer successfully" });
+      return res.status(500).json({ success: false, error: failureReason || "Print failed" });
+    });
+  } catch (err) {
+    if (printWindow && !printWindow.isDestroyed()) printWindow.close();
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+
 
   // Start server
   server.listen(PORT, "localhost", () => {
@@ -370,111 +382,55 @@ function startPrintServer() {
   });
 }
 
-async function silentPrint(pdfPath, printerName) {
-  const platform = os.platform();
-
-  if (platform === "win32") {
-    // Windows: Use Electron's native print API
-    return new Promise((resolve, reject) => {
-      const printWindow = new BrowserWindow({
-        show: false,
-        webPreferences: {
-          offscreen: true,
-          nodeIntegration: false,
-          contextIsolation: true,
-        },
-      });
-
-      printWindow.loadFile(pdfPath);
-
-      printWindow.webContents.on("did-finish-load", () => {
-        // Wait for rendering to complete
-        setTimeout(() => {
-          printWindow.webContents.print(
-            {
-              silent: true,
-              deviceName: printerName,
-              printBackground: true,
-              margins: {
-                marginType: "none",
-              },
-            },
-            (success, failureReason) => {
-              printWindow.close();
-
-              if (!success) {
-                reject(new Error(failureReason || "Print failed"));
-              } else {
-                console.log("✓ Windows print successful");
-                resolve();
-              }
-            }
-          );
-        }, 1000);
-      });
-
-      printWindow.webContents.on(
-        "did-fail-load",
-        (event, errorCode, errorDescription) => {
-          printWindow.close();
-          reject(new Error(`Failed to load PDF: ${errorDescription}`));
-        }
-      );
-    });
-  } else if (platform === "darwin") {
-    // macOS: Use lp command
-    try {
-      await execPromise(`lp -d "${printerName}" "${pdfPath}"`);
-      console.log("✓ macOS print successful");
-    } catch (error) {
-      throw new Error(`macOS print failed: ${error.message}`);
-    }
-  } else {
-    // Linux: Use lp command
-    try {
-      await execPromise(`lp -d "${printerName}" "${pdfPath}"`);
-      console.log("✓ Linux print successful");
-    } catch (error) {
-      throw new Error(`Linux print failed: ${error.message}`);
-    }
-  }
-}
-
-async function savePDF(base64Data) {
-  // Remove data URL prefix if present
-  const base64Clean = base64Data.replace(/^data:application\/pdf;base64,/, "");
-
-  const buffer = Buffer.from(base64Clean, "base64");
-  const tempPath = path.join(os.tmpdir(), `receipt_${Date.now()}.pdf`);
-
-  fs.writeFileSync(tempPath, buffer);
-
-  return tempPath;
-}
-
-async function getAvailablePrinters() {
-  const platform = os.platform();
-
-  if (platform === "darwin" || platform === "linux") {
-    const { stdout } = await execPromise("lpstat -p -d");
-    return stdout.trim().split("\n");
-  } else if (platform === "win32") {
-    // Windows: Get printers using WMI
-    const { stdout } = await execPromise("wmic printer get name");
-    const printers = stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line && line !== "Name");
-    return printers;
-  }
-
-  return [];
-}
-
 function testPrint() {
-  console.log("Test print triggered from tray menu");
-}
+    const { dialog } = require("electron");
+    const storedPrinterName = store.get("printerName");
+  
+    const testHtml = `
+      <div style="font-family: monospace; width: 80mm; padding: 5px; box-sizing: border-box;">
+        <h2 style="text-align: center;">Test Print</h2>
+        <p>--------------------------------</p>
+        <p>Printer: ${storedPrinterName}</p>
+        <p>Status: Success</p>
+        <p>Time: ${new Date().toLocaleTimeString()}</p>
+        <p>--------------------------------</p>
+        <p style="text-align: center;">Print Agent is working!</p>
+      </div>
+    `;
+  
+    // Reuse the print logic
+    const printPayload = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html: testHtml }),
+    };
+  
+    fetch(`http://localhost:${store.get("port")}/print`, printPayload)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          dialog.showMessageBox({
+            type: "info",
+            title: "Test Print",
+            message: "Test print sent successfully!",
+          });
+        } else {
+          throw new Error(data.error);
+        }
+      })
+      .catch(err => {
+        console.error("Test print failed:", err);
+        dialog.showErrorBox("Test Print Failed", err.message || "Could not connect to the print server.");
+      });
+  
+    console.log("Test print triggered from tray menu");
+  }
 
 function showLogs() {
-  console.log("Show logs clicked");
+    const { shell } = require("electron");
+    // This is a basic implementation. For production, you'd use a real logging library
+    // and open the log file. For now, we can open the dev tools of a hidden window.
+    const logWindow = new BrowserWindow({ show: false });
+    logWindow.webContents.openDevTools();
+    console.log("Developer tools opened for log inspection. Close the new window to dismiss.");
 }
