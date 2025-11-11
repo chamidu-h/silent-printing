@@ -16,15 +16,13 @@
   },
   "dependencies": {
     "auto-launch": "^5.0.6",
-    "body-parser": "^2.2.0",
-    "cheerio": "^1.1.2",
+    "cheerio": "1.0.0-rc.12",
     "cors": "^2.8.5",
     "electron-store": "^8.2.0",
-    "express": "^5.1.0",
-    "fs": "^0.0.1-security"
+    "express": "^4.19.2"
   },
   "devDependencies": {
-    "electron": "^38.2.2",
+    "electron": "24.6.4",
     "electron-builder": "^26.0.12"
   },
   "build": {
@@ -35,9 +33,7 @@
       "output": "dist"
     },
     "win": {
-      "target": [
-        "nsis"
-      ],
+      "target": ["nsis"],
       "icon": "icon.ico"
     },
     "nsis": {
@@ -53,9 +49,7 @@
       "uninstallerIcon": "icon.ico"
     },
     "mac": {
-      "target": [
-        "dmg"
-      ],
+      "target": ["dmg"],
       "icon": "icon.icns",
       "category": "public.app-category.utilities"
     },
@@ -74,10 +68,7 @@
       ]
     },
     "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
+      "target": ["AppImage", "deb"],
       "icon": "icon.png",
       "category": "Utility"
     }

@@ -217,8 +217,8 @@ function startPrintServer() {
   const defaultPrinter = store.get("printerName");
 
   server = express();
-  server.use(bodyParser.json({ limit: "50mb" }));
-  server.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
+  server.use(express.json({ limit: "50mb" }));
+  server.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   const cors = require("cors");
   server.use(cors({ origin: "*" }));
@@ -274,98 +274,162 @@ server.post("/print", async (req, res) => {
   if (!storedPrinterName) return res.status(500).json({ success: false, error: "No printer configured." });
 
   let printWindow;
+  
   try {
     // Resolve the target printer
-    const tmp = new BrowserWindow({ show: false });
-    const printers = await tmp.webContents.getPrintersAsync();
-    tmp.close();
-    const target = printers.find(p => p.name === storedPrinterName);
-    if (!target) return res.status(404).json({ success: false, error: `Printer "${storedPrinterName}" not found.` });
+    const tmpWindow = new BrowserWindow({ show: false });
+    const printers = await tmpWindow.webContents.getPrintersAsync();
+    tmpWindow.close();
+    
+    let targetPrinter = printers.find(p => p.name === storedPrinterName);
+    
+    // Fallback to default printer if configured printer not found
+    if (!targetPrinter) {
+      const defaultPrinters = printers.filter(p => p.isDefault);
+      if (defaultPrinters.length > 0) {
+        targetPrinter = defaultPrinters[0];
+        console.log(`⚠️ Printer "${storedPrinterName}" not found, using default: ${targetPrinter.name}`);
+      } else {
+        return res.status(404).json({ 
+          success: false, 
+          error: `Printer "${storedPrinterName}" not found and no default printer available.` 
+        });
+      }
+    }
 
-    // Constants
-    const PAGE_WIDTH_MICRONS = 80000;   // 80 mm wide roll (Chromium pageSize uses microns)
-    const PRINTABLE_WIDTH_MM = 72;      // typical effective width on 80mm printers (≈576 dots @203 dpi)
-    const X_OFFSET_MM = store.get('xOffsetMm') ?? 0; // optional fine horizontal nudge (+ right, – left)
-
-    // Use on-screen composition to avoid offscreen rasterization/scaling
+    // Create print window - MUST BE VISIBLE for proper rendering
     printWindow = new BrowserWindow({
-      show: false,
-      useContentSize: true,
+      show: false,  // Keep hidden but render on-screen
+      width: 800,
+      height: 600,
       webPreferences: {
-        sandbox: true,
-        contextIsolation: true,
+        sandbox: false,
+        contextIsolation: false,
         nodeIntegration: false,
-        offscreen: false,
-        zoomFactor: 1.0
+        webSecurity: false,
+        offscreen: false  // CRITICAL: Must be false for proper DPI rendering
       }
     });
 
-    // Load raw payload unchanged
-    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-
-    // Lock zoom to 1:1 for consistent layout metrics
+    // CRITICAL: Set zoom BEFORE loading content
     printWindow.webContents.setZoomFactor(1.0);
     printWindow.webContents.setVisualZoomLevelLimits(1, 1);
 
-    // Ensure images/fonts/barcode have settled before measuring/printing
-    await printWindow.webContents.executeJavaScript(`
-      (async () => {
-        const imgs = Array.from(document.images);
-        await Promise.all(imgs.map(img => img.complete ? Promise.resolve()
-          : new Promise(r => { img.onload = img.onerror = r; })));
-        if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
-        await new Promise(r => requestAnimationFrame(() => setTimeout(r, 50)));
-      })();
-    `, true);
+    // EVENT-DRIVEN APPROACH
+    printWindow.webContents.on('did-finish-load', async () => {
+      try {
+        console.log('📄 Page loaded, waiting for resources...');
+        
+        // Wait for all resources
+        await printWindow.webContents.executeJavaScript(`
+          (async () => {
+            const imgs = Array.from(document.images);
+            await Promise.all(imgs.map(img => img.complete ? Promise.resolve()
+              : new Promise(r => { img.onload = img.onerror = r; })));
+            
+            if (document.fonts && document.fonts.ready) { 
+              await document.fonts.ready; 
+            }
+            
+            await new Promise(resolve => {
+              let attempts = 0;
+              const checkBarcode = () => {
+                const barcodeElements = document.querySelectorAll('[id^="barcode-"]');
+                const hasBarcode = Array.from(barcodeElements).some(el => el.querySelector('rect'));
+                
+                if (hasBarcode || attempts > 50) {
+                  resolve();
+                } else {
+                  attempts++;
+                  setTimeout(checkBarcode, 100);
+                }
+              };
+              checkBarcode();
+            });
+            
+            await new Promise(r => setTimeout(r, 300));
+          })();
+        `, true);
 
-    // Center a 72mm canvas on an 80mm page (runtime-only, does not modify payload source)
-    const cssKey = await printWindow.webContents.insertCSS(`
-      @media print {
-        @page { size: 80mm auto; margin: 0; }
-        html, body {
-          width: ${PRINTABLE_WIDTH_MM}mm !important;
-          margin-left: calc(4mm + ${X_OFFSET_MM}mm) !important; /* (80-72)/2 = 4mm, plus optional offset */
-          margin-right: 4mm !important;
-          padding: 0 !important;
-          box-sizing: border-box;
-          transform: translateX(0); /* reserved: we use margins for centering */
-        }
+        console.log('✅ All resources loaded');
+
+        console.log(`🖨️ Printing to ${targetPrinter.name}...`);
+
+        // THE FIX: Minimal options that let printer driver handle everything
+        // This makes silent:true behave like silent:false (dialog mode)
+        printWindow.webContents.print({
+          silent: true,
+          deviceName: targetPrinter.name,
+          printBackground: true,
+          color: false,
+          // DON'T specify margins - let printer use its defaults
+          // DON'T specify pageSize - let printer use its defaults  
+          // DON'T specify dpi - let printer use its native DPI
+          // DON'T specify scaleFactor - let printer handle scaling
+          
+          // Only specify what's absolutely necessary
+          landscape: false,
+          pagesPerSheet: 1,
+          collate: false,
+          copies: 1
+        }, (success, failureReason) => {
+          console.log('🖨️ Print callback triggered');
+          
+          if (!printWindow.isDestroyed()) {
+            printWindow.close();
+          }
+          
+          if (success) {
+            console.log('✅ Print successful');
+            return res.json({ 
+              success: true, 
+              message: "Bill sent to printer successfully",
+              printer: targetPrinter.name
+            });
+          } else {
+            console.error('❌ Print failed:', failureReason);
+            return res.status(500).json({ 
+              success: false, 
+              error: failureReason || "Print failed" 
+            });
+          }
+        });
+        
+      } catch (resourceError) {
+        console.error('❌ Resource loading error:', resourceError);
+        if (!printWindow.isDestroyed()) printWindow.close();
+        return res.status(500).json({ 
+          success: false, 
+          error: `Resource loading failed: ${resourceError.message}` 
+        });
       }
-    `);
-
-    // Remove any payload padding safely
-    await printWindow.webContents.insertCSS(`body { padding: 0 !important }`);
-
-    // Compute required height in microns from document scroll height (96 CSS px per inch)
-    const heightMicrons = await printWindow.webContents.executeJavaScript(`
-      (function() {
-        const px = Math.ceil(document.documentElement.scrollHeight);
-        const inches = px / 96;
-        const mm = inches * 25.4;
-        return Math.max(120000, Math.ceil(mm * 1000)); // at least 120mm
-      })();
-    `, true);
-
-    // Silent print with explicit 80mm width and measured height
-    printWindow.webContents.print({
-      silent: true,
-      deviceName: target.name,
-      printBackground: true,
-      color: false,
-      margins: { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 },
-      pageSize: { width: PAGE_WIDTH_MICRONS, height: heightMicrons } // microns
-    }, (success, failureReason) => {
-      // Best-effort cleanup of injected CSS (safe even if cssKey undefined)
-      if (cssKey) { printWindow.webContents.removeInsertedCSS(cssKey).catch(() => {}); }
-      if (!printWindow.isDestroyed()) printWindow.close();
-      if (success) return res.json({ success: true, message: "Bill sent to printer successfully" });
-      return res.status(500).json({ success: false, error: failureReason || "Print failed" });
     });
+
+    printWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+      console.error('❌ Page load failed:', errorCode, errorDescription);
+      if (!printWindow.isDestroyed()) printWindow.close();
+      return res.status(500).json({ 
+        success: false, 
+        error: `Failed to load content: ${errorDescription}` 
+      });
+    });
+
+    // Load the HTML
+    printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
   } catch (err) {
+    console.error('❌ Print error:', err);
     if (printWindow && !printWindow.isDestroyed()) printWindow.close();
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ 
+      success: false, 
+      error: err.message 
+    });
   }
 });
+
+
+
+
 
 
 
