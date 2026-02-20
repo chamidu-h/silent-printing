@@ -24,6 +24,7 @@ const store = new Store({
     port: 4000,
     printerName: "XP-80C Main",
     kotPrinterName: "XP-80C",
+    botPrinterName: "XP-80C Bar",
   },
 });
 
@@ -104,17 +105,17 @@ function updateTrayMenu() {
   // Create context menu
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "🖨️ Silent Print Agent",
+      label: "Silent Print Agent",
       enabled: false,
       icon: resizedIcon,
     },
     { type: "separator" },
     {
-      label: `✓ Status: Running on port ${currentPort}`,
+      label: `Status: Running on port ${currentPort}`,
       enabled: false,
     },
     {
-      label: `🌐 Endpoint: http://localhost:${currentPort}`,
+      label: `Endpoint: http://localhost:${currentPort}`,
       enabled: false,
     },
     { type: "separator" },
@@ -182,6 +183,7 @@ ipcMain.on("get-settings", (event) => {
     port: store.get("port"),
     printerName: store.get("printerName"),
     kotPrinterName: store.get("kotPrinterName"),
+    botPrinterName: store.get("botPrinterName"),
   };
 });
 
@@ -191,6 +193,7 @@ ipcMain.on("save-settings", (event, settings) => {
   store.set("port", settings.port);
   store.set("printerName", settings.printerName);
   store.set("kotPrinterName", settings.kotPrinterName); 
+  store.set("botPrinterName", settings.botPrinterName); 
   
 
   event.returnValue = { success: true };
@@ -563,6 +566,141 @@ server.post("/print-kot", async (req, res) => {
 
   } catch (err) {
     console.error('❌ KOT Print error:', err);
+    if (printWindow && !printWindow.isDestroyed()) printWindow.close();
+    return res.status(500).json({ 
+      success: false, 
+      error: err.message 
+    });
+  }
+});
+
+// NEW BOT PRINT ENDPOINT
+server.post("/print-bot", async (req, res) => {
+  const { html } = req.body;
+  if (!html) return res.status(400).json({ success: false, error: "Missing html in request body" });
+
+  const storedBotPrinterName = store.get("botPrinterName");
+  if (!storedBotPrinterName) return res.status(500).json({ success: false, error: "No BOT printer configured." });
+
+  let printWindow;
+  
+  try {
+    // Resolve the target printer
+    const tmpWindow = new BrowserWindow({ show: false });
+    const printers = await tmpWindow.webContents.getPrintersAsync();
+    tmpWindow.close();
+    
+    let targetPrinter = printers.find(p => p.name === storedBotPrinterName);
+    
+    // Fallback to default printer if configured printer not found
+    if (!targetPrinter) {
+      const defaultPrinters = printers.filter(p => p.isDefault);
+      if (defaultPrinters.length > 0) {
+        targetPrinter = defaultPrinters[0];
+        console.log(`⚠️ BOT Printer "${storedBotPrinterName}" not found, using default: ${targetPrinter.name}`);
+      } else {
+        return res.status(404).json({ 
+          success: false, 
+          error: `BOT Printer "${storedBotPrinterName}" not found and no default printer available.` 
+        });
+      }
+    }
+
+    // Create print window
+    printWindow = new BrowserWindow({
+      show: false,
+      width: 800,
+      height: 600,
+      webPreferences: {
+        sandbox: false,
+        contextIsolation: false,
+        nodeIntegration: false,
+        webSecurity: false,
+        offscreen: false
+      }
+    });
+
+    printWindow.webContents.setZoomFactor(1.0);
+    printWindow.webContents.setVisualZoomLevelLimits(1, 1);
+
+    printWindow.webContents.on('did-finish-load', async () => {
+      try {
+        console.log('📄 BOT Page loaded, waiting for resources...');
+        
+        // Wait for all resources
+        await printWindow.webContents.executeJavaScript(`
+          (async () => {
+            const imgs = Array.from(document.images);
+            await Promise.all(imgs.map(img => img.complete ? Promise.resolve()
+              : new Promise(r => { img.onload = img.onerror = r; })));
+            
+            if (document.fonts && document.fonts.ready) { 
+              await document.fonts.ready; 
+            }
+            
+            await new Promise(r => setTimeout(r, 300));
+          })();
+        `, true);
+
+        console.log('✅ All BOT resources loaded');
+        console.log(`🖨️ Printing BOT to ${targetPrinter.name}...`);
+
+        printWindow.webContents.print({
+          silent: true,
+          deviceName: targetPrinter.name,
+          printBackground: true,
+          color: false,
+          landscape: false,
+          pagesPerSheet: 1,
+          collate: false,
+          copies: 1
+        }, (success, failureReason) => {
+          console.log('🖨️ BOT Print callback triggered');
+          
+          if (!printWindow.isDestroyed()) {
+            printWindow.close();
+          }
+          
+          if (success) {
+            console.log('✅ BOT Print successful');
+            return res.json({ 
+              success: true, 
+              message: "BOT sent to printer successfully",
+              printer: targetPrinter.name
+            });
+          } else {
+            console.error('❌ BOT Print failed:', failureReason);
+            return res.status(500).json({ 
+              success: false, 
+              error: failureReason || "BOT Print failed" 
+            });
+          }
+        });
+        
+      } catch (resourceError) {
+        console.error('❌ BOT Resource loading error:', resourceError);
+        if (!printWindow.isDestroyed()) printWindow.close();
+        return res.status(500).json({ 
+          success: false, 
+          error: `BOT Resource loading failed: ${resourceError.message}` 
+        });
+      }
+    });
+
+    printWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+      console.error('❌ BOT Page load failed:', errorCode, errorDescription);
+      if (!printWindow.isDestroyed()) printWindow.close();
+      return res.status(500).json({ 
+        success: false, 
+        error: `Failed to load BOT content: ${errorDescription}` 
+      });
+    });
+
+    // Load the HTML
+    printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  } catch (err) {
+    console.error('❌ BOT Print error:', err);
     if (printWindow && !printWindow.isDestroyed()) printWindow.close();
     return res.status(500).json({ 
       success: false, 

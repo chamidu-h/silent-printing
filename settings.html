@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <title>Print Agent Settings</title>
@@ -9,223 +10,240 @@
       padding: 0;
       box-sizing: border-box;
     }
-    
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      padding: 15px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+      background-color: #f0f4f2;
+      color: #34495e;
+      padding: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
-      height: 100vh;
-      overflow: hidden;
+      min-height: 100vh;
+      line-height: 1.5;
     }
-    
+
     .container {
       background: white;
-      border-radius: 12px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      padding: 25px 30px;
+      border-radius: 8px;
+      border: 1px solid #dce4e0;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      padding: 30px;
       width: 100%;
-      max-width: 500px;
+      max-width: 480px;
     }
-    
+
     h1 {
-      color: #333;
-      font-size: 22px;
-      margin-bottom: 5px;
+      color: #27ae60;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 4px;
       text-align: center;
+      letter-spacing: -0.5px;
     }
-    
+
     .subtitle {
-      color: #666;
+      color: #7f8c8d;
       font-size: 13px;
       text-align: center;
-      margin-bottom: 20px;
+      margin-bottom: 25px;
     }
-    
+
     .form-group {
-      margin-bottom: 20px;
+      margin-bottom: 18px;
     }
-    
+
     label {
       display: block;
-      color: #555;
+      color: #2c3e50;
       font-weight: 600;
-      margin-bottom: 8px;
-      font-size: 13px;
+      margin-bottom: 6px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
-    
+
     input[type="number"],
     select {
       width: 100%;
-      padding: 11px 12px;
-      border: 2px solid #e0e0e0;
-      border-radius: 6px;
+      padding: 10px 12px;
+      border: 1px solid #dcdde1;
+      border-radius: 4px;
       font-size: 14px;
-      transition: all 0.3s ease;
+      transition: border-color 0.2s, box-shadow 0.2s;
       outline: none;
-      background: white;
+      background: #fafafa;
+      color: #2f3640;
     }
-    
+
     input[type="number"]:focus,
     select:focus {
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      border-color: #2ecc71;
+      background: white;
+      box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.1);
     }
-    
+
     select {
       cursor: pointer;
       appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23333' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237f8c8d' d='M6 8.5L2 4.5h8z'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
       background-position: right 12px center;
       padding-right: 35px;
     }
-    
+
     select:disabled {
-      background-color: #f5f5f5;
+      background-color: #f1f2f6;
       cursor: not-allowed;
-      opacity: 0.6;
+      opacity: 0.7;
     }
-    
+
     .help-text {
       font-size: 11px;
-      color: #888;
-      margin-top: 5px;
+      color: #95a5a6;
+      margin-top: 4px;
     }
-    
+
     .printer-section {
-      background: #f8f9fa;
-      padding: 15px;
-      border-radius: 8px;
-      margin-bottom: 15px;
+      background: #fbfcfb;
+      padding: 18px;
+      border: 1px solid #edf2ef;
+      border-radius: 6px;
+      margin-bottom: 16px;
     }
-    
+
     .printer-section h3 {
-      color: #667eea;
-      font-size: 14px;
-      margin-bottom: 10px;
+      color: #27ae60;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 12px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
+      text-transform: uppercase;
     }
-    
+
     .refresh-btn {
       width: 100%;
-      padding: 10px;
-      background: #28a745;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 13px;
-      font-weight: 600;
+      padding: 9px;
+      background: #ffffff;
+      color: #27ae60;
+      border: 1.5px solid #27ae60;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 700;
       cursor: pointer;
-      margin-bottom: 15px;
-      transition: all 0.3s ease;
+      margin-bottom: 20px;
+      transition: all 0.2s ease;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
-    
+
     .refresh-btn:hover:not(:disabled) {
-      background: #218838;
-      transform: translateY(-1px);
+      background: #f0fbf4;
+      border-color: #2ecc71;
+      color: #2ecc71;
     }
-    
+
     .refresh-btn:disabled {
-      background: #ccc;
+      border-color: #dcdde1;
+      color: #bdc3c7;
       cursor: not-allowed;
-      transform: none;
     }
-    
+
     .button-group {
       display: flex;
-      gap: 10px;
+      gap: 12px;
       margin-top: 25px;
     }
-    
+
     button[type="submit"],
     button[type="button"]:not(.refresh-btn) {
       flex: 1;
-      padding: 12px 20px;
+      padding: 12px 16px;
       border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 600;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 700;
       cursor: pointer;
-      transition: all 0.3s ease;
+      transition: all 0.2s ease;
       outline: none;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
-    
+
     .btn-save {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background-color: #27ae60;
       color: white;
     }
-    
+
     .btn-save:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+      background-color: #2ecc71;
     }
-    
+
     .btn-save:disabled {
-      opacity: 0.6;
+      background-color: #bdc3c7;
       cursor: not-allowed;
     }
-    
+
     .btn-cancel {
-      background: #f0f0f0;
-      color: #666;
+      background-color: #ecf0f1;
+      color: #7f8c8d;
     }
-    
+
     .btn-cancel:hover {
-      background: #e0e0e0;
+      background-color: #dfe6e9;
+      color: #2c3e50;
     }
-    
+
     .status {
-      padding: 10px;
-      border-radius: 6px;
+      padding: 12px;
+      border-radius: 4px;
       margin-bottom: 15px;
       text-align: center;
       font-size: 13px;
+      font-weight: 600;
       display: none;
     }
-    
+
     .status.success {
-      background: #d4edda;
-      color: #155724;
-      border: 1px solid #c3e6cb;
+      background: #e8f8f0;
+      color: #1e8449;
+      border: 1px solid #d1f2eb;
     }
-    
+
     .status.error {
-      background: #f8d7da;
-      color: #721c24;
-      border: 1px solid #f5c6cb;
+      background: #fdf2f2;
+      color: #c0392b;
+      border: 1px solid #fadbd8;
     }
 
     .loading {
-      color: #999;
-      font-style: italic;
+      color: #bdc3c7;
     }
   </style>
 </head>
+
 <body>
   <div class="container">
-    <h1>⚙️ Print Agent Settings</h1>
-    <p class="subtitle">Configure your print server and printers</p>
-    
+    <h1>Print Agent Configuration</h1>
+    <p class="subtitle">System environment & printer management</p>
+
     <div id="status" class="status"></div>
-    
+
     <button type="button" class="refresh-btn" id="refreshBtn" onclick="loadPrinters()">
-      🔄 Refresh Printer List
+      Refresh Printer List
     </button>
-    
+
     <form id="settingsForm">
       <div class="form-group">
         <label for="port">Server Port</label>
         <input type="number" id="port" name="port" min="1024" max="65535" required>
         <div class="help-text">Port for local print server (1024-65535)</div>
       </div>
-      
+
       <div class="printer-section">
-        <h3>📄 System Bill Printer</h3>
+        <h3>System Bill Printer</h3>
         <div class="form-group" style="margin-bottom: 0;">
           <label for="printerName">Printer Name</label>
           <select id="printerName" name="printerName" required>
@@ -233,9 +251,9 @@
           </select>
         </div>
       </div>
-      
+
       <div class="printer-section">
-        <h3>🍳 KOT Printer</h3>
+        <h3>KOT Printer</h3>
         <div class="form-group" style="margin-bottom: 0;">
           <label for="kotPrinterName">Printer Name</label>
           <select id="kotPrinterName" name="kotPrinterName" required>
@@ -243,72 +261,94 @@
           </select>
         </div>
       </div>
-      
+
+      <div class="printer-section">
+        <h3>BOT Printer (Bar Orders)</h3>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="botPrinterName">Printer Name</label>
+          <select id="botPrinterName" name="botPrinterName" required>
+            <option value="">Loading printers...</option>
+          </select>
+        </div>
+      </div>
+
       <div class="button-group">
         <button type="button" class="btn-cancel" onclick="window.close()">Cancel</button>
         <button type="submit" class="btn-save" id="saveBtn">Save Settings</button>
       </div>
     </form>
   </div>
-  
+
   <script>
     const { ipcRenderer } = require('electron');
-    
+
     let printersData = [];
     let currentSettings = {};
-    
+
     // Load current settings on startup
     function loadSettings() {
       currentSettings = ipcRenderer.sendSync('get-settings');
       document.getElementById('port').value = currentSettings.port;
     }
-    
+
     // Load available printers from the agent
     async function loadPrinters() {
       const refreshBtn = document.getElementById('refreshBtn');
       const saveBtn = document.getElementById('saveBtn');
       const printerSelect = document.getElementById('printerName');
       const kotPrinterSelect = document.getElementById('kotPrinterName');
-      
+      const botPrinterSelect = document.getElementById('botPrinterName');
+
       refreshBtn.disabled = true;
-      refreshBtn.textContent = '⏳ Loading...';
+      refreshBtn.textContent = 'Loading...';
       saveBtn.disabled = true;
-      
+
       printerSelect.innerHTML = '<option value="" class="loading">Loading...</option>';
       kotPrinterSelect.innerHTML = '<option value="" class="loading">Loading...</option>';
-      
+      botPrinterSelect.innerHTML = '<option value="" class="loading">Loading...</option>';
+
       try {
         const response = await fetch('http://localhost:' + currentSettings.port + '/printers');
         const data = await response.json();
-        
+
         if (data.success && data.printers) {
           printersData = data.printers;
-          
+
           // Populate printer dropdowns
           printerSelect.innerHTML = '<option value="">-- Select Printer --</option>';
           kotPrinterSelect.innerHTML = '<option value="">-- Select Printer --</option>';
-          
+          botPrinterSelect.innerHTML = '<option value="">-- Select Printer --</option>';
+
           data.printers.forEach(printer => {
             const option1 = document.createElement('option');
             option1.value = printer.name;
             option1.textContent = printer.name + (printer.isDefault ? ' (Default)' : '');
             printerSelect.appendChild(option1);
-            
+
             const option2 = document.createElement('option');
             option2.value = printer.name;
             option2.textContent = printer.name + (printer.isDefault ? ' (Default)' : '');
             kotPrinterSelect.appendChild(option2);
+
+            const option3 = document.createElement('option');
+            option3.value = printer.name;
+            option3.textContent = printer.name + (printer.isDefault ? ' (Default)' : '');
+            botPrinterSelect.appendChild(option3);
           });
-          
+
           // Restore previously saved values
           if (currentSettings.printerName) {
             printerSelect.value = currentSettings.printerName;
           }
-          
+
           if (currentSettings.kotPrinterName) {
             kotPrinterSelect.value = currentSettings.kotPrinterName;
           }
-          
+
+          if (currentSettings.botPrinterName) {
+            botPrinterSelect.value = currentSettings.botPrinterName;
+          }
+
           showStatus('Printers loaded successfully', 'success');
         } else {
           throw new Error('Failed to fetch printers');
@@ -317,67 +357,76 @@
         console.error('Error loading printers:', error);
         printerSelect.innerHTML = '<option value="">Error loading printers</option>';
         kotPrinterSelect.innerHTML = '<option value="">Error loading printers</option>';
+        botPrinterSelect.innerHTML = '<option value="">Error loading printers</option>';
         showStatus('Failed to load printers. Make sure the agent is running.', 'error');
       } finally {
         refreshBtn.disabled = false;
-        refreshBtn.textContent = '🔄 Refresh Printer List';
+        refreshBtn.textContent = 'Refresh Printer List';
         saveBtn.disabled = false;
       }
     }
-    
+
     // Handle form submission
     document.getElementById('settingsForm').addEventListener('submit', (e) => {
       e.preventDefault();
-      
+
       const port = parseInt(document.getElementById('port').value);
       const printerName = document.getElementById('printerName').value;
       const kotPrinterName = document.getElementById('kotPrinterName').value;
-      
+      const botPrinterName = document.getElementById('botPrinterName').value;
+
       // Validate
       if (port < 1024 || port > 65535) {
         showStatus('Port must be between 1024 and 65535', 'error');
         return;
       }
-      
+
       if (!printerName) {
         showStatus('Please select a system bill printer', 'error');
         return;
       }
-      
+
       if (!kotPrinterName) {
         showStatus('Please select a KOT printer', 'error');
         return;
       }
-      
+
+      if (!botPrinterName) {
+        showStatus('Please select a BOT printer', 'error');
+        return;
+      }
+
       // Save settings
       const result = ipcRenderer.sendSync('save-settings', {
         port: port,
         printerName: printerName,
-        kotPrinterName: kotPrinterName
+        kotPrinterName: kotPrinterName,
+        botPrinterName: botPrinterName
       });
-      
+
       if (result.success) {
         showStatus('Settings saved successfully!', 'success');
         // Window will close or prompt for restart automatically
       }
     });
-    
+
     function showStatus(message, type) {
       const statusDiv = document.getElementById('status');
       statusDiv.textContent = message;
       statusDiv.className = `status ${type}`;
       statusDiv.style.display = 'block';
-      
+
       if (type === 'success') {
         setTimeout(() => {
           statusDiv.style.display = 'none';
         }, 2000);
       }
     }
-    
+
     // Initialize on load
     loadSettings();
     loadPrinters();
   </script>
 </body>
+
 </html>
